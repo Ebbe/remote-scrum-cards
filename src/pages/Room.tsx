@@ -1,15 +1,17 @@
 import Peer from "peerjs";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import Client from "../lib/Client";
+import { IMessageHandler } from "../lib/IMessageHandler";
+import Server from "../lib/Server";
 
-async function tryToServe(id: string): Promise<Peer> {
+const config: Peer.PeerJSOption = {};
+
+async function tryToServe(id: string): Promise<IMessageHandler> {
   return new Promise((resolve, reject) => {
-    const peer = new Peer(`remote-scrum-cards-${id}`);
+    const peer = new Peer(`remote-scrum-cards-${id}`, config);
     peer.on("open", function (id) {
       console.log("My peer ID is: " + id);
-      resolve(peer);
-    });
-    peer.on("connection", (d) => {
-      console.debug("new connection", d);
+      resolve(new Server(peer));
     });
     peer.on("error", (e) => {
       reject();
@@ -17,29 +19,52 @@ async function tryToServe(id: string): Promise<Peer> {
   });
 }
 
-async function tryToJoin(id: string): Promise<Peer> {
+async function tryToJoin(id: string): Promise<IMessageHandler> {
   return new Promise((resolve, reject) => {
-    const peer = new Peer();
-    peer.on("open", function (id) {
-      console.log("My peer ID is: " + id);
+    const peer = new Peer(undefined, config);
+    peer.on("open", function (_id) {
+      console.log("My peer ID is now: " + _id);
       var conn = peer.connect(`remote-scrum-cards-${id}`);
       conn.on("open", () => {
         console.debug("Opened connection");
+        resolve(new Client(conn));
       });
       conn.on("error", (e) => {
         console.debug("error", e);
+        reject();
       });
-      resolve(peer);
     });
   });
 }
 
+const setName = (name: string, connection?: IMessageHandler) => {
+  if (!connection) return;
+
+  connection.setMyName(name);
+};
+
 export default function Room({ id }: { id: string }) {
+  const [connectionHandler, setConnectionHandler] = useState<
+    IMessageHandler | undefined
+  >(undefined);
+
   useEffect(() => {
+    if (connectionHandler) return;
     async function connect() {
-      return await tryToServe(id).catch(() => tryToJoin(id));
+      setConnectionHandler(await tryToServe(id).catch(() => tryToJoin(id)));
     }
     connect();
-  }, [id]);
-  return <>I rum {id}</>;
+  }, [connectionHandler, id]);
+
+  return (
+    <>
+      I rum {id}
+      <br />
+      <input
+        type="text"
+        name="name"
+        onChange={(e) => setName(e.target.value, connectionHandler)}
+      />
+    </>
+  );
 }
